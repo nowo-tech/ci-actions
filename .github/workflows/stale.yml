@@ -1,0 +1,56 @@
+name: Stale (reusable)
+
+# Marks and closes inactive issues and pull requests (actions/stale).
+#
+# Caller:
+#   name: Stale Issues and Pull Requests
+#   on:
+#     schedule:
+#       - cron: "30 1 * * *"
+#   permissions:
+#     issues: write
+#     pull-requests: write
+#   jobs:
+#     stale:
+#       uses: nowo-tech/ci-actions/.github/workflows/stale.yml@v1
+
+on:
+  workflow_call:
+    inputs:
+      days-before-stale:
+        type: number
+        default: 60
+      days-before-close:
+        type: number
+        default: 60
+      exempt-issue-labels:
+        type: string
+        default: 'WIP,Do Not Close'
+      exempt-pr-labels:
+        type: string
+        default: 'Do Not Close,need review'
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  close-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@v11
+        with:
+          days-before-stale: ${{ inputs.days-before-stale }}
+          days-before-close: ${{ inputs.days-before-close }}
+          stale-issue-label: "stale"
+          stale-pr-label: "stale"
+          exempt-issue-labels: ${{ inputs.exempt-issue-labels }}
+          exempt-pr-labels: ${{ inputs.exempt-pr-labels }}
+          stale-issue-message: "This issue has been marked as stale because it has not had any activity for ${{ inputs.days-before-stale }} days. Remove stale label or comment to prevent this from being closed in ${{ inputs.days-before-close }} days."
+          close-issue-message: "This issue was closed because it has been inactive for ${{ inputs.days-before-close }} days since being marked as stale."
+          stale-pr-message: "This PR has been marked as stale because it has not had any activity for ${{ inputs.days-before-stale }} days. Remove stale label or comment to prevent this from being closed in ${{ inputs.days-before-close }} days."
+          close-pr-message: "This PR was closed because it has been inactive for ${{ inputs.days-before-close }} days since being marked as stale."
+          repo-token: ${{ secrets.GITHUB_TOKEN }}

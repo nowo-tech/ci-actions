@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Lint workflows and the composite action
+        uses: docker://rhysd/actionlint:1.7.7
+        with:
+          args: -color
+
+  # Self test of the composite action: a push event is always full, so mode must be full and heavy true.
+  changes-selftest:
+    name: changes action self test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Run the local action
+        id: changes
+        uses: ./changes
+        with:
+          mode-variable: ${{ vars.NOWO_CI_PR_MODE }}
+
+      - name: Check outputs
+        env:
+          MODE: ${{ steps.changes.outputs.mode }}
+          HEAVY: ${{ steps.changes.outputs.heavy }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          echo "event=$EVENT mode=$MODE heavy=$HEAVY"
+          case "$MODE/$HEAVY" in
+            full/true|light/false) ;;
+            *) echo "unexpected outputs"; exit 1 ;;
+          esac
+          if [ "$EVENT" = push ] && [ "$MODE" != full ]; then echo "push must be full"; exit 1; fi

@@ -1,0 +1,83 @@
+name: 'nowo-tech CI change scope'
+description: >-
+  Light-CI change detection for nowo-tech bundles. Decides whether a pull request runs light (deps/docs-only or
+  forced by the org variable) or full. push, tags, workflow_dispatch and schedule are always full. Fail-closed.
+
+inputs:
+  mode-variable:
+    description: 'Value of the NOWO_CI_PR_MODE Actions variable: pass ${{ vars.NOWO_CI_PR_MODE }}. light, auto, full; empty = auto; anything else = full.'
+    required: false
+    default: ''
+  extra-code-globs:
+    description: >-
+      Optional extra paths that always count as code in auto mode (newline or space separated bash globs, where *
+      also matches /, e.g. 'docs/openapi/*'). A changed path matching one of them makes the PR full even if it
+      matches the built-in light list.
+    required: false
+    default: ''
+  checkout:
+    description: 'Check out the PR merge commit (fetch-depth 2) for pull_request events. Set to false if the job already did.'
+    required: false
+    default: 'true'
+
+outputs:
+  mode:
+    description: 'light, or full (also the fail-closed value).'
+    value: ${{ steps.classify.outputs.mode }}
+  heavy:
+    description: "'true' unless mode is light: use it to gate expensive steps."
+    value: ${{ steps.classify.outputs.heavy }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code (PR merge commit and its base parent)
+      if: ${{ github.event_name == 'pull_request' && inputs.checkout == 'true' }}
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 2
+
+    - name: Classify the change
+      id: classify
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        SWITCH: ${{ inputs.mode-variable }}
+        EXTRA: ${{ inputs.extra-code-globs }}
+        LIGHT: '^((demo/([^/]+/)?)?composer\.(json|lock)|docs/.*|specs/.*|\.cursor/.*|\.github/ISSUE_TEMPLATE/.*|.*\.md)$'
+      run: |
+        mode=full; paths=""
+        if [ "$EVENT" != pull_request ]; then
+          reason="event '$EVENT' always runs full"
+        else
+          case "$SWITCH" in
+            light) mode=light; reason="NOWO_CI_PR_MODE=light: every PR is light" ;;
+            full) reason="NOWO_CI_PR_MODE=full: every PR is full" ;;
+            ''|auto)
+              if files=$(git diff --name-only --no-renames HEAD^1 HEAD); then
+                mode=light; reason="NOWO_CI_PR_MODE=${SWITCH:-unset} (auto): only deps/docs paths changed"
+                while IFS= read -r f; do
+                  [ -n "$f" ] || continue
+                  if ! printf '%s\n' "$f" | grep -Eq "$LIGHT"; then mode=full; paths="$paths $f"; continue; fi
+                  for g in $EXTRA; do
+                    # shellcheck disable=SC2053
+                    if [[ "$f" == $g ]]; then mode=full; paths="$paths $f"; break; fi
+                  done
+                done <<< "$files"
+                [ "$mode" = light ] || reason="NOWO_CI_PR_MODE=${SWITCH:-unset} (auto): non deps/docs paths changed:$paths"
+              else
+                reason="NOWO_CI_PR_MODE=${SWITCH:-unset} (auto): git diff failed, fail-closed"
+              fi ;;
+            *) reason="NOWO_CI_PR_MODE='$SWITCH' is not light/auto/full, fail-closed" ;;
+          esac
+        fi
+        heavy=true; [ "$mode" = light ] && heavy=false
+        echo "mode=$mode ($reason)"
+        echo "mode=$mode" >> "$GITHUB_OUTPUT"
+        echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
+        {
+          echo "### CI mode: \`$mode\`"
+          echo ""
+          echo "$reason"
+          if [ "$EVENT" = pull_request ] && [ -n "${files:-}" ]; then echo ""; echo "Changed paths:"; echo '```'; echo "$files" | head -200; echo '```'; fi
+        } >> "$GITHUB_STEP_SUMMARY"
