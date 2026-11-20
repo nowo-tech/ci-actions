@@ -5,7 +5,7 @@ description: >-
 
 inputs:
   mode-variable:
-    description: 'Value of the NOWO_CI_PR_MODE Actions variable: pass ${{ vars.NOWO_CI_PR_MODE }}. light, auto, full; empty = auto; anything else = full.'
+    description: 'Value of the NOWO_CI_PR_MODE Actions variable: pass the vars context entry NOWO_CI_PR_MODE. light, auto, full; empty = auto; anything else = full.'
     required: false
     default: ''
   extra-code-globs:
